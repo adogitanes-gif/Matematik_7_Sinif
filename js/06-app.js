@@ -55,7 +55,7 @@ function briefing(g,startAt=0,lesson=null,scenes=BRIEF1){
   document.querySelectorAll('#dots button').forEach(b=>b.onclick=()=>begin(+b.dataset.s));
   $('skn').onclick=()=>{const k=Object.keys(SKINS);applySkin(k[(k.indexOf(skin())+1)%k.length]);$('skn').textContent='Görünüm: '+SKINS[skin()]};
   $('vsel').onclick=()=>{pickVoice();const L=VOICE.list||[];if(!L.length){$('vsel').innerHTML=`${ic('voice')} Anlatıcı: Türkçe ses yok`;return}
-    const i=L.indexOf(VOICE.v);VOICE.v=L[(i+1)%L.length];ST.set('m7-voicename',VOICE.v.name);$('vsel').innerHTML=`${ic('voice')} Anlatıcı: ${vName()}`;
+    const i=L.indexOf(VOICE.v);VOICE.v=L[(i+1)%L.length];ST.set('m7-voicename',VOICE.v.name);ST.set('m7-voiceok',L.some(v=>/ahmet/i.test(v.name)));$('vsel').innerHTML=`${ic('voice')} Anlatıcı: ${vName()}`;
     if(B.started&&!B.paused)setPaused(true);hush();say('Merhaba kaşif, ben Rakam. Sesim böyle.',true)};
   ppLabel();
 }
@@ -165,7 +165,7 @@ function reportPage(){
   document.title='Ebeveyn Raporu · Matematik 7';
 }
 /* progress backup: every m7-* key as one copyable code */
-function backupCode(){const d={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith('m7-'))d[k]=localStorage.getItem(k)}
+function backupCode(){const d={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith('m7-')&&!/^m7-voice(name|ok)$/.test(k))d[k]=localStorage.getItem(k)}
   return 'M7Y1:'+btoa(unescape(encodeURIComponent(JSON.stringify({v:1,at:Date.now(),d}))))}
 function restoreBackup(txt){try{const t=(txt||'').trim().replace(/\s+/g,'');if(!t.startsWith('M7Y1:'))return {ok:false,msg:'Bu bir Matematik 7 yedek kodu değil.'};
     const o=JSON.parse(decodeURIComponent(escape(atob(t.slice(5)))));if(!o||typeof o.d!=='object')return {ok:false,msg:'Yedek kodu bozuk.'};

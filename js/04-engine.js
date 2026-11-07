@@ -27,7 +27,9 @@ const FEMALE=/emel|seda|yelda|filiz|zeynep|female|kad[ıi]n/i,MALE=/tolga|ahmet|
 function pickVoice(){try{const vs=speechSynthesis.getVoices().filter(v=>/^tr(-|_|$)/i.test(v.lang));VOICE.list=vs;const saved=ST.get('m7-voicename',null);
   /* offline: online voices (Edge "Ahmet Online (Natural)") cannot speak, so only installed voices count; online: Ahmet first */
   const use=navigator.onLine===false?vs.filter(v=>v.localService!==false):vs,pool=use.length?use:vs;
-  VOICE.v=pool.find(v=>v.name===saved)||pool.find(v=>/ahmet/i.test(v.name))||pool.find(v=>MALE.test(v.name))||pool.find(v=>!FEMALE.test(v.name))||pool[0]||null}catch(e){VOICE.v=null;VOICE.list=[]}}
+  /* Ahmet wins whenever he can speak, unless another voice was picked by hand while Ahmet was on the list (m7-voiceok) */
+  const ahmet=pool.find(v=>/ahmet/i.test(v.name)),hand=saved&&ST.get('m7-voiceok',false);
+  VOICE.v=(ahmet&&!hand?ahmet:null)||pool.find(v=>v.name===saved)||ahmet||pool.find(v=>MALE.test(v.name))||pool.find(v=>!FEMALE.test(v.name))||pool[0]||null}catch(e){VOICE.v=null;VOICE.list=[]}}
 /* the internet comes and goes: re-pick the voice so the game returns to Ahmet as soon as it can (Edge reloads its online voices a moment later) */
 ['online','offline'].forEach(ev=>window.addEventListener(ev,()=>{pickVoice();[1500,5000,12000].forEach(t=>setTimeout(pickVoice,t))}));
 const vName=()=>VOICE.v?VOICE.v.name.replace(/^Microsoft\s+/,'').replace(/\s*[-–(].*$/,'').trim():'Türkçe ses yok';
@@ -59,7 +61,7 @@ function speechText(s){
    the safety timer only covers a lost "end" event and never runs while paused. */
 function speechChunks(text){const sents=speechText(text).split(/(?<=[^\d\s][.!?…])\s+/).map(s=>s.trim()).filter(Boolean),out=[];let cur='';
   for(const s of sents){if(cur&&(cur.length+s.length+1)>200){out.push(cur);cur=s}else cur=cur?cur+' '+s:s}if(cur)out.push(cur);return out}
-function say(text,force=false){
+function say(text,force=false){ try{if(navigator.onLine&&!(VOICE.v&&/ahmet/i.test(VOICE.v.name)))pickVoice()}catch(e){}
   if((!VOICE.on&&!force)||!VOICE.v||!('speechSynthesis' in window))return wait(est(text));
   return new Promise(res=>{const parts=speechChunks(text);let left=parts.length,done=false;const fin=()=>{if(!done){done=true;res()}};if(!left){fin();return}
     try{for(const p of parts){const u=new SpeechSynthesisUtterance(p);u.lang='tr-TR';u.voice=VOICE.v;u.rate=.9*(B.rate||1);u.pitch=1;u.volume=1;
@@ -104,7 +106,7 @@ function heroSVG(o){o=o||shop();const c=HEROC[o.hero][1];let hat='';
   return `<g class="hero"><line x1="0" y1="-88" x2="0" y2="-102" stroke="#cbd2ff" stroke-width="3"/><circle cx="0" cy="-105" r="5" fill="#ffc83d"/>
   <path d="M-20 -40 L-34 -22" stroke="${c}" stroke-width="7" stroke-linecap="round"/><path d="M20 -40 L34 -22" stroke="${c}" stroke-width="7" stroke-linecap="round"/>
   <rect x="-16" y="-14" width="11" height="14" rx="3" fill="#cbd2ff"/><rect x="5" y="-14" width="11" height="14" rx="3" fill="#cbd2ff"/>
-  <rect x="-21" y="-48" width="42" height="36" rx="9" fill="${c}" stroke="#0a0920" stroke-width="3"/><text x="0" y="-23" text-anchor="middle" style="font-family:var(--f-display);font-size:16px;fill:#0a0920">7</text>
+  <rect x="-21" y="-48" width="42" height="36" rx="9" fill="${c}" stroke="#0a0920" stroke-width="3"/><text x="0" y="-23" text-anchor="middle" style="font-family:var(--f-brand);font-size:16px;fill:#0a0920">7</text>
   <rect x="-27" y="-90" width="54" height="42" rx="13" fill="${c}" stroke="#0a0920" stroke-width="3"/><rect x="-19" y="-80" width="38" height="21" rx="8" fill="#0a0920"/>
   <circle class="eye" cx="-8" cy="-69" r="4.5" fill="#7df9ff"/><circle class="eye" cx="8" cy="-69" r="4.5" fill="#7df9ff"/>${hat}</g>`}
 function heroBox(o,vb='-60 -125 120 135'){return `<svg viewBox="${vb}" aria-hidden="true">${heroSVG(o)}</svg>`}
@@ -345,10 +347,10 @@ function mumAttack(mis,times){
     const ov=document.createElement('div');ov.className='ov';ov.setAttribute('role','dialog');ov.setAttribute('aria-label',`${m.m} yakalandı`);
     ov.innerHTML=`<svg viewBox="0 0 800 440">${RAINBOW}
       <g transform="translate(600,250)"><g class="mon">${monsterSVG(m.c)}</g></g>
-      <g transform="translate(600,350)"><g class="mlab"><rect x="-130" y="-22" width="260" height="40" rx="20" fill="#0a0920" stroke="${m.c}" stroke-width="3"/><text x="0" y="6" text-anchor="middle" style="font-family:var(--f-display);font-size:18px;fill:${m.c}">${m.m}</text></g></g>
+      <g transform="translate(600,350)"><g class="mlab"><rect x="-130" y="-22" width="260" height="40" rx="20" fill="#0a0920" stroke="${m.c}" stroke-width="3"/><text x="0" y="6" text-anchor="middle" style="font-family:var(--f-display);font-weight:800;font-size:18px;fill:${m.c}">${m.m}</text></g></g>
       <g transform="translate(170,230)"><g class="mum">${mumSVG()}</g></g>
       <g transform="translate(242,232)"><g class="sl-o"><g class="sl-i">${slipperSVG(slip)}</g></g></g>
-      <g transform="translate(560,190)"><g class="boing" opacity="0"><polygon points="0,-70 18,-30 62,-44 36,-8 74,16 28,22 34,66 0,38 -34,66 -28,22 -74,16 -36,-8 -62,-44 -18,-30" fill="#ffc83d" stroke="#0a0920" stroke-width="4"/><text x="0" y="12" text-anchor="middle" style="font-family:var(--f-display);font-size:30px;fill:#0a0920">${skin()==='elektron'?'ZZZT!':'BOİNG!'}</text></g></g>
+      <g transform="translate(560,190)"><g class="boing" opacity="0"><polygon points="0,-70 18,-30 62,-44 36,-8 74,16 28,22 34,66 0,38 -34,66 -28,22 -74,16 -36,-8 -62,-44 -18,-30" fill="#ffc83d" stroke="#0a0920" stroke-width="4"/><text x="0" y="12" text-anchor="middle" style="font-family:var(--f-display);font-weight:800;font-size:30px;fill:#0a0920">${skin()==='elektron'?'ZZZT!':'BOİNG!'}</text></g></g>
       <g transform="translate(600,250)"><g class="sparks" opacity="0">${Array.from({length:12},(_,i)=>{const a=i*Math.PI/6;return `<line x1="${(Math.cos(a)*62).toFixed(1)}" y1="${(Math.sin(a)*62).toFixed(1)}" x2="${(Math.cos(a)*98).toFixed(1)}" y2="${(Math.sin(a)*98).toFixed(1)}" stroke="#4df3ff" stroke-width="5" stroke-linecap="round"/>`}).join('')}</g></g>
       <g transform="translate(250,80)"><g class="bub" opacity="0"><rect x="-200" y="-34" width="400" height="60" rx="22" fill="#fff" stroke="#0a0920" stroke-width="4"/><path d="M-60 24 L-90 64 L-20 24Z" fill="#fff" stroke="#0a0920" stroke-width="4"/><rect x="-80" y="18" width="70" height="10" fill="#fff"/>
         <text x="0" y="6" text-anchor="middle" style="font-family:var(--f-body);font-weight:900;font-size:22px;fill:#0a0920">${line}</text></g></g>
@@ -405,7 +407,7 @@ function setupLine(){
   const q=S.q,W=640,PAD=28,Y=52,steps=(q.max-q.min)*q.den,xv=v=>PAD+(v-q.min)/(q.max-q.min)*(W-2*PAD);
   let pickV=null;const vis=document.getElementById('vis');
   const draw=(reveal)=>{
-    let s=(q.min<0?`<g class="ereg"><rect x="${xv(q.min)}" y="${Y-20}" width="${xv(Math.min(0,q.max))-xv(q.min)}" height="40" rx="8" style="fill:rgba(77,243,255,.08);stroke:rgba(77,243,255,.4);stroke-dasharray:4 4"/><text x="${xv(q.min)+6}" y="${Y-26}" text-anchor="start" style="fill:var(--cyan);font-size:11px">e⁻ bölgesi · negatif sayılar</text></g>`:'')+
+    let s=(q.min<0?`<g class="ereg"><rect x="${xv(q.min)}" y="${Y-20}" width="${xv(Math.min(0,q.max))-xv(q.min)}" height="40" rx="8" style="fill:rgba(77,243,255,.08);stroke:rgba(77,243,255,.4);stroke-dasharray:4 4"/><text x="${xv(q.min)+6}" y="${Y-26}" text-anchor="start" style="fill:var(--cyan);font-size:15px">e⁻ bölgesi · negatif sayılar</text></g>`:'')+
       `<line class="s-line" x1="6" y1="${Y}" x2="${W-6}" y2="${Y}" style="stroke:var(--axis);stroke-width:3"/><line class="flow" x1="6" y1="${Y}" x2="${W-6}" y2="${Y}"/><polyline class="s-line" points="14,${Y-7} 6,${Y} 14,${Y+7}"/><polyline class="s-line" points="${W-14},${Y-7} ${W-6},${Y} ${W-14},${Y+7}"/>`;
     for(let k=0;k<=steps;k++){const v=q.min+k/q.den,x=xv(v),major=Math.abs(v-Math.round(v))<1e-9;
       s+=`<line class="${major?'s-line':'s-thin'}" x1="${x}" y1="${Y-(major?11:6)}" x2="${x}" y2="${Y+(major?11:6)}"/>`;
@@ -456,7 +458,7 @@ function floaty(el){if(!RM)el.animate([{transform:'translateY(0)'},{transform:'t
 function shakeEl(el){return el.animate([{transform:'translateX(0)'},{transform:'translateX(-10px)'},{transform:'translateX(10px)'},{transform:'translateX(0)'}],{duration:350,iterations:2}).finished.catch(()=>{})}
 function drawStroke(el,dur=700,delay=0){el.setAttribute('pathLength','1');el.style.strokeDasharray='1';return el.animate([{strokeDashoffset:1},{strokeDashoffset:0}],{duration:RM?1:dur,delay,fill:'both'}).finished.catch(()=>{})}
 function stamp(st,x,y,text,col='var(--red)'){const g=add(st,`<g transform="translate(${x},${y}) rotate(-8)"><rect x="${-text.length*10-18}" y="-30" width="${text.length*20+36}" height="56" rx="10" fill="none" stroke="${col}" stroke-width="5"/>
-  <text x="0" y="10" text-anchor="middle" style="font-family:var(--f-display);font-size:28px;fill:${col}">${text}</text></g>`);
+  <text x="0" y="10" text-anchor="middle" style="font-family:var(--f-display);font-weight:800;font-size:28px;fill:${col}">${text}</text></g>`);
   el0(g);sfx('combo');return g.animate([{transform:'scale(3)',opacity:0},{transform:'scale(.92)',opacity:1,offset:.7},{transform:'scale(1)',opacity:1}],{duration:RM?1:500,easing:'ease-in',fill:'backwards'}).finished.catch(()=>{})}
 function el0(g){g.style.transformBox='fill-box';g.style.transformOrigin='center'}
 function stageLine(st,min,max,o={}){
