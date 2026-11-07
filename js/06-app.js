@@ -260,3 +260,24 @@ function route(){
   hub();
 }
 window.addEventListener('hashchange',route);route();
+
+/* ===== "install as an app" button on the home map =====
+   Chrome / Edge / Android: the browser's own install window (beforeinstallprompt). iPhone / iPad: Safari has no install
+   window, so a short how-to is shown. Hidden when already running as the installed app, and inside claude.ai (not installable). */
+const INST={evt:null,done:false};
+const inApp=()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const isIOS=()=>/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const installable=()=>/\.github\.io$|^localhost$/.test(location.hostname);
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();INST.evt=e;fillInstall()});
+window.addEventListener('appinstalled',()=>{INST.done=true;INST.evt=null;fillInstall();banner('Uygulama yüklendi!')});
+function fillInstall(){const slot=document.getElementById('instslot');if(!slot)return;slot.innerHTML='';
+  if(inApp()||INST.done||!installable())return;
+  if(!INST.evt&&!isIOS())return;
+  slot.innerHTML=`<button class="btn gold" id="instb" type="button">${ic('home')} Uygulamayı yükle</button>`;
+  document.getElementById('instb').onclick=async()=>{
+    if(INST.evt){const e=INST.evt;INST.evt=null;e.prompt();try{const c=await e.userChoice;if(c.outcome!=='accepted')INST.evt=e}catch(_){}fillInstall();return}
+    const o=document.createElement('div');o.className='ov';o.innerHTML=`<div class="pnl" style="max-width:520px;cursor:auto;text-align:left"><h2 style="margin-top:0">iPhone / iPad'e yükleme</h2>
+      <ol style="line-height:1.7;padding-left:1.3em"><li>Bu sayfayı <b>Safari</b> ile açın.</li><li>Alttaki <b>Paylaş</b> düğmesine dokunun (yukarı ok olan kare).</li><li><b>Ana Ekrana Ekle</b>'yi seçin, sonra <b>Ekle</b>.</li></ol>
+      <button class="btn gold" type="button">Tamam</button></div>`;o.onclick=ev=>{if(ev.target===o||ev.target.tagName==='BUTTON')o.remove()};document.body.appendChild(o)}}
+new MutationObserver(()=>{const s=document.getElementById('instslot');if(s&&!s.dataset.f){s.dataset.f=1;fillInstall()}}).observe(document.getElementById('app'),{childList:true});
+fillInstall();
