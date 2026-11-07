@@ -471,3 +471,14 @@ function ratioDotsSVG(a,b,groups){let s='',x=10;for(let g=0;g<groups;g++){for(le
   return `<svg viewBox="0 0 ${x} 110" role="img" aria-label="Oran grupları">${s}</svg>`}
 function rhombusRectSVG(){return `<svg viewBox="0 0 360 240" role="img" aria-label="Dikdörtgen içinde eşkenar dörtgen"><rect x="40" y="30" width="280" height="180" fill="none" style="stroke:var(--ink-soft);stroke-width:2;stroke-dasharray:6 5"/>
   <polygon class="f1 s-line" points="40,120 180,30 320,120 180,210"/><line x1="40" y1="120" x2="320" y2="120" class="s-dash"/><line x1="180" y1="30" x2="180" y2="210" class="s-dash"/><text x="250" y="70" text-anchor="middle">boş</text><text x="110" y="70" text-anchor="middle">boş</text><text x="180" y="230" text-anchor="middle">Eşkenar dörtgen = dikdörtgenin yarısı</text></svg>`}
+
+/* ================= 4.2 Pergel atölyesi: interactive constructions (kind 'build', played by setupBuild) ================= */
+function g4Build(task){task=task||pick(['dikme','aciortay']);const D=Math.PI/180,C=[320,205];
+  if(task==='dikme'){const h=ri(115,165),t=ri(-22,22)*D,u=[Math.cos(t),Math.sin(t)],A=[C[0]-h*u[0],C[1]-h*u[1]],B=[C[0]+h*u[0],C[1]+h*u[1]];
+    return {kind:'build',task,A,B,prompt:`<p><b>Pergel atölyesi:</b> AB doğru parçasının <b>orta dikmesini</b> pergel ve cetvelle inşa et.</p>`,
+      explain:`Pergel AB'nin yarısından fazla açılır. A ve B merkezli, aynı yarıçaplı yayların kesiştiği iki nokta A ve B'ye eşit uzaklıktadır. Bu iki noktadan geçen doğru AB'yi tam ortasından dik keser: orta dikme.`}}
+  /* place the angle so the vertex and both arms stay inside the 640 × 410 drawing */
+  const at=(c,r,t)=>[c[0]+r*Math.cos(t),c[1]+r*Math.sin(t)],inb=p=>p[0]>=30&&p[0]<=610&&p[1]>=30&&p[1]<=380;
+  let a,b,O,L=270;for(let t=0;t<300;t++){a=ri(60,115)*D;b=ri(0,359)*D;O=at(C,-110,b);if([O,at(O,L,b-a/2),at(O,L,b+a/2)].every(inb))break;if(t===299){b=0;O=[150,205];L=260}}
+  return {kind:'build',task,O,r1:b-a/2,r2:b+a/2,L,prompt:`<p><b>Pergel atölyesi:</b> AOB açısının <b>açıortayını</b> pergel ve cetvelle inşa et.</p>`,
+    explain:`O merkezli bir yay iki kolu D ve E'de keser. D ve E merkezli, aynı yarıçaplı (DE'nin yarısından fazla) yaylar F'de kesişir. O'dan F'ye çizilen ışın açıyı iki eş parçaya böler: açıortay.`}}

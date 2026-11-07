@@ -24,7 +24,11 @@ function sfx(k){
 const VOICE={on:ST.get('m7-voice',true),v:null};
 /* male narrator: prefer a male Turkish voice (Tolga on Windows, Ahmet in Edge), avoid known female ones; the choice is remembered */
 const FEMALE=/emel|seda|yelda|filiz|zeynep|female|kad[ıi]n/i,MALE=/tolga|ahmet|male|erkek/i;
-function pickVoice(){try{const vs=speechSynthesis.getVoices().filter(v=>/^tr(-|_|$)/i.test(v.lang));VOICE.list=vs;const saved=ST.get('m7-voicename',null);
+/* Some tablets (many Android ones) report their voices late or never list them at all, yet still speak Turkish with lang=tr-TR.
+   DEV = "use the device's own default voice": only when the device lists no voices at all (a list without Turkish means Turkish is not installed). */
+const DEV={name:'Cihaz sesi',dev:true,localService:true};
+function pickVoice(){try{const all=speechSynthesis.getVoices(),vs=all.filter(v=>/^tr(-|_|$)/i.test(v.lang)||/turk|türk/i.test(v.name));VOICE.list=vs;VOICE.all=all.length;
+  if(!vs.length){VOICE.v=('speechSynthesis' in window&&!all.length&&VOICE.tries>=6)?DEV:null;return}const saved=ST.get('m7-voicename',null);
   /* offline: online voices (Edge "Ahmet Online (Natural)") cannot speak, so only installed voices count; online: Ahmet first */
   const use=navigator.onLine===false?vs.filter(v=>v.localService!==false):vs,pool=use.length?use:vs;
   /* Ahmet wins whenever he can speak, unless another voice was picked by hand while Ahmet was on the list (m7-voiceok) */
@@ -34,7 +38,10 @@ function pickVoice(){try{const vs=speechSynthesis.getVoices().filter(v=>/^tr(-|_
 ['online','offline'].forEach(ev=>window.addEventListener(ev,()=>{pickVoice();[1500,5000,12000].forEach(t=>setTimeout(pickVoice,t))}));
 const vName=()=>VOICE.v?VOICE.v.name.replace(/^Microsoft\s+/,'').replace(/\s*[-–(].*$/,'').trim():'Türkçe ses yok';
 const vMale=()=>!!VOICE.v&&!FEMALE.test(VOICE.v.name);
-try{pickVoice();speechSynthesis.onvoiceschanged=pickVoice}catch(e){}
+VOICE.tries=0;
+try{pickVoice();speechSynthesis.onvoiceschanged=()=>{pickVoice();window.dispatchEvent(new Event('m7voice'))};speechSynthesis.addEventListener?.('voiceschanged',pickVoice)}catch(e){}
+/* keep asking for a few seconds: some browsers fill the voice list late and never send "voiceschanged" */
+[300,800,1500,2500,4000,6500].forEach(t=>setTimeout(()=>{VOICE.tries++;if(!VOICE.v||VOICE.v.dev)pickVoice();window.dispatchEvent(new Event('m7voice'))},t));
 /* speaking time estimate (timeline and no-voice mode): the Turkish voice at the calm rate says about 13 letters a second */
 const est=t=>(700+t.length*78)/(B.rate||1);
 /* Turkish maths pronunciation: fractions as "dörtte üç", decimals as "virgül", units in full words */
@@ -64,7 +71,7 @@ function speechChunks(text){const sents=speechText(text).split(/(?<=[^\d\s][.!?�
 function say(text,force=false){ try{if(navigator.onLine&&!(VOICE.v&&/ahmet/i.test(VOICE.v.name)))pickVoice()}catch(e){}
   if((!VOICE.on&&!force)||!VOICE.v||!('speechSynthesis' in window))return wait(est(text));
   return new Promise(res=>{const parts=speechChunks(text);let left=parts.length,done=false;const fin=()=>{if(!done){done=true;res()}};if(!left){fin();return}
-    try{for(const p of parts){const u=new SpeechSynthesisUtterance(p);u.lang='tr-TR';u.voice=VOICE.v;u.rate=.9*(B.rate||1);u.pitch=1;u.volume=1;
+    try{for(const p of parts){const u=new SpeechSynthesisUtterance(p);u.lang='tr-TR';if(!VOICE.v.dev)u.voice=VOICE.v;u.rate=.9*(B.rate||1);u.pitch=1;u.volume=1;
         u.onend=u.onerror=()=>{if(--left<=0)fin()};speechSynthesis.speak(u)}
       wait(2*est(text)+8000).then(fin)}catch(e){wait(est(text)).then(fin)}})
 }
@@ -166,7 +173,7 @@ function srsState(){const now=Date.now(),st={};for(const e of ST.get('m7-log',[]
 function makePlan(){const S0=srsState(),play=LESSONS.filter(l=>l.gen),ids=[],why={},add=(l,w,n)=>{for(let i=0;i<n;i++)ids.push(l.id);if(!why[l.id])why[l.id]=w};
   play.filter(l=>S0[l.id]&&S0[l.id].weak).sort((a,b)=>S0[a.id].acc-S0[b.id].acc).slice(0,2).forEach(l=>add(l,'zayıf konu',2));
   play.filter(l=>S0[l.id]&&!S0[l.id].weak&&S0[l.id].due).sort((a,b)=>S0[b.id].days-S0[a.id].days).slice(0,3).forEach(l=>add(l,`tekrar zamanı · ${Math.max(1,Math.round(S0[l.id].days))} gün önce`,1));
-  const fresh=play.find(l=>!S0[l.id]);if(fresh)add(fresh,'sıradaki yeni ders',2);
+  const fresh=play.find(l=>!S0[l.id]||(S0[l.id].recent.length<3&&S0[l.id].acc<.7));if(fresh)add(fresh,'sıradaki yeni ders',2);
   const seen=play.filter(l=>S0[l.id]),pool=seen.length?seen:play.slice(0,6);while(ids.length<10)add(pick(pool),'karışık tekrar',1);
   const plan={date:dayKey(),ids:shuffle(ids.slice(0,10)),why};ST.set('m7-dplan',plan);return plan}
 function getPlan(){const p=ST.get('m7-dplan',null);return p&&p.date===dayKey()&&p.ids&&p.ids.length===10?p:makePlan()}
@@ -201,7 +208,7 @@ function hub(){
   const theme=g=>{const ls=LESSONS.filter(l=>l.th===g.id),dn=ls.filter(l=>(lb[l.id]??0)>=7).length,b=best[g.id];
     return `<li class="thm" style="--hue:${g.hue}"><details data-k="th${g.id}"${op('th'+g.id)}><summary class="thh"><span class="tw" aria-hidden="true"></span><span class="tno">${String(g.id).padStart(2,'0')}</span>
       <span class="thn"><span class="tema">${g.id}. Tema · ${g.pages} · ${ls.length} ders</span><b>${g.tema}</b></span><span class="badge">${dn} / ${ls.length}</span></summary>
-      <div class="thx"><a class="btn sm gold" href="#tema-${g.id}">${g.brief?'Brifing + ':''}Tema görevi: ${g.name}</a><span class="hint">Karışık 10 soru · kitapta değerlendirme s. ${TH_TEST[g.id]}${b!=null?` · en iyi ${b} / 10`:''}</span></div>
+      <div class="thx"><a class="btn sm gold" href="#tema-${g.id}">${g.brief?'Brifing + ':''}Tema görevi: ${g.name}</a><span class="hint">Karışık 10 soru · kitapta değerlendirme s. ${TH_TEST[g.id]}${b!=null?` · en iyi ${b} / 10`:''}</span>${(()=>{const t=ST.get('m7-test',{})[g.id];return `<a class="btn sm" href="#test-${g.id}">${ic('auto')} Seviye testi</a><span class="hint">${t?`son test ${t.s} / ${t.n} · ${t.known.length} ders biliyor`:'Bildiğin dersleri bul, eksiklerini gör'}</span>`})()}</div>
       <ol class="lsl">${ls.map(row).join('')}</ol></details></li>`};
   const book=bk=>{const th=G.filter(g=>g.book===bk),n=LESSONS.filter(l=>l.book===bk).length;
     return `<section class="book"><details data-k="b${bk}"${op('b'+bk)}><summary class="bks"><span class="tw" aria-hidden="true"></span><h2>${bk}. Kitap</h2><span class="hint">${th.length} tema · ${n} ders · ${th[0].id}.–${th[th.length-1].id}. tema</span></summary><ol class="thl">${th.map(theme).join('')}</ol></details></section>`};
@@ -234,17 +241,18 @@ function hub(){
 
 /* ================= game engine ================= */
 let S=null;
-function start(g,opt={}){S={g,skill:opt.skill||null,lesson:opt.lesson||null,daily:opt.daily||null,i:0,score:0,streak:0,coins:0,marks:[],seen:new Set(),misCount:{},monsters:[]};sfx('start');next()}
+function start(g,opt={}){S={g,skill:opt.skill||null,lesson:opt.lesson||null,daily:opt.daily||null,test:opt.test?testPlan(g):null,n:10,i:0,score:0,streak:0,coins:0,marks:[],seen:new Set(),misCount:{},monsters:[]};if(S.test)S.n=S.test.seq.length;sfx('start');next()}
 function next(){
-  if(S.i>=10)return result();
+  if(S.i>=S.n)return S.test?testResult():result();
   if(S.daily){S.lesson=S.daily.items[S.i];S.g=G[S.lesson.th-1]}
-  let q;for(let t=0;t<20;t++){q=S.lesson?S.lesson.gen():S.g.gen(S.skill);if(!S.seen.has(q.prompt+(q.visual||'').length))break}
+  if(S.test)S.cur=S.test.seq[S.i];
+  let q;for(let t=0;t<20;t++){q=S.test?testQ(S.cur):S.lesson?S.lesson.gen():S.g.gen(S.skill);if(!S.seen.has(q.prompt+(q.visual||'').length))break}
   S.seen.add(q.prompt+(q.visual||'').length);S.q=q;S.done=false;render();
 }
 function hud(){
-  const g=S.g,marks=Array.from({length:10},(_,i)=>`<i class="${S.marks[i]===true?'ok':S.marks[i]===false?'bad':i===S.i?'now':''}"></i>`).join('');
+  const g=S.g,marks=Array.from({length:S.n},(_,i)=>`<i class="${S.marks[i]===true?'ok':S.marks[i]===false?'bad':i===S.i?'now':''}"></i>`).join('');
   return `<div class="hud" style="--hue:${g.hue}"><button class="iconbtn" id="back" type="button">${ic('home')} Harita</button>
-    <div class="meta"><span class="tema">${S.daily?`Bugünün görevi · bu soru: ${S.lesson.no} ${S.lesson.t} · ${S.daily.why[S.lesson.id]||''}`:S.lesson?`Ders ${S.lesson.no} · ${S.lesson.book}. Kitap s. ${S.lesson.p}`:S.skill?'Pratik · '+SK1[S.skill]:g.id+'. Tema · '+g.tema}</span><h2>${S.daily?'Bugünün Görevi':S.lesson?S.lesson.t:g.name}</h2></div>
+    <div class="meta"><span class="tema">${S.test?(S.i>=S.n?'Seviye testi tamamlandı':`Seviye testi · bu soru: ${S.cur.no} ${S.cur.t}`):S.daily?`Bugünün görevi · bu soru: ${S.lesson.no} ${S.lesson.t} · ${S.daily.why[S.lesson.id]||''}`:S.lesson?`Ders ${S.lesson.no} · ${S.lesson.book}. Kitap s. ${S.lesson.p}`:S.skill?'Pratik · '+SK1[S.skill]:g.id+'. Tema · '+g.tema}</span><h2>${S.test?`Seviye Testi · ${g.id}. Tema`:S.daily?'Bugünün Görevi':S.lesson?S.lesson.t:g.name}</h2></div>
     <span class="streak${S.streak>=3?' hot':''}" id="streak">SERİ ${S.streak}</span><span class="coins" id="wallet"><i class="coin"></i><span id="wv">${wallet()}</span></span>
     <div class="hbtns" role="toolbar" aria-label="Oyun kontrolleri"><button class="iconbtn" id="rd" type="button" title="Soruyu ve seçenekleri sesli oku">${ic('voice')} Sesli oku</button>
       ${S.lesson&&(S.lesson.script||S.lesson.learn!=null)?`<button class="iconbtn" id="rb" type="button" title="Bu dersin anlatımını izle">${ic('book')} Öğren</button>`:g.brief&&!S.lesson?`<button class="iconbtn" id="rb" type="button" title="Görev brifingini yeniden izle">${ic('book')} Brifing</button>`:''}
@@ -258,7 +266,7 @@ function bindHud(){
   $('full').onclick=toggleFull;
   $('snd2').onclick=()=>{SND.on=!SND.on;ST.set('m7-sound',SND.on);$('snd2').innerHTML=`${ic('sound')} ${SND.on?'Ses açık':'Ses kapalı'}`;$('snd2').classList.toggle('on',SND.on)};
   if($('rb'))$('rb').onclick=()=>{const g=S.g,l=S.lesson;S=null;hush();if(l&&(l.script||l.learn!=null))briefing(g,0,l,scenesFor(l));else briefing(g)};
-  $('rd').onclick=()=>{if(!VOICE.v){$('rd').innerHTML=`${ic('voice')} Türkçe ses yok`;return}hush();say(promptSpeech(),true)};
+  $('rd').onclick=()=>{if(!VOICE.v){pickVoice()}if(!VOICE.v){$('rd').innerHTML=`${ic('voice')} Türkçe ses yok`;voiceHelp();return}hush();say(promptSpeech(),true)};
 }
 function promptSpeech(){
   const flat=el=>{const c=el.cloneNode(true);c.querySelectorAll('.fr-b').forEach(f=>{const s=f.children;f.replaceWith(` ${s[0].textContent} bölü ${s[1].textContent} `)});c.querySelectorAll('.box').forEach(b=>b.replaceWith(' kaç '));c.querySelectorAll('.k').forEach(k=>k.remove());return c.textContent};
@@ -272,8 +280,9 @@ function render(){
   if(q.kind==='number')ans=`<form class="row" id="nf" novalidate><input class="numin" id="numin" inputmode="decimal" autocomplete="off" aria-label="Cevabın" placeholder="Cevap">${q.unit?`<span class="unit">${q.unit}</span>`:''}<button class="go" type="submit" id="chk">Kontrol et</button></form><div class="keypad" role="group" aria-label="Sayı tuşları">${['7','8','9','4','5','6','1','2','3','−','0',','].map(k=>`<button type="button" data-key="${k}">${k}</button>`).join('')}<button type="button" data-key="del">Sil</button></div><p class="hint">Yaz ya da tuşlara bas. Negatif sayı için −, ondalık için virgül (örnek: −3 veya 2,5).</p><p class="err" id="err" hidden></p>`;
   if(q.kind==='line')ans=`<div class="row"><button class="go" id="chk" type="button" disabled>Kontrol et</button><span class="hint" id="pickv">Doğrunun üzerine dokun; ok tuşlarıyla da kaydırabilirsin.</span></div>`;
   if(q.kind==='grid')ans=`<div class="row"><button class="go" id="chk" type="button">Kontrol et</button><button class="go alt" id="clr" type="button">Temizle</button></div>`;
-  const vis=(q.kind==='line'||q.kind==='grid')?`<div class="vis" id="vis"></div>`:q.v3d&&can3D()?`<div class="vis" style="display:block"><div class="v3q" id="v3q" aria-label="Döndürülebilir 3B model"></div><p class="hint v3hint">Döndürmek için sürükle · kumandada ◀ ▶</p></div>`:q.visual?`<div class="vis">${q.visual}</div>`:'';
-  app.innerHTML=`<div class="game" style="--hue:${S.g.hue}">${hud()}<section class="qcard"><span class="qnum">SORU ${S.i+1} / 10</span><div class="prompt">${q.prompt}</div>${vis}<div class="answers" id="answers">${ans}</div><div id="fb" aria-live="polite"></div></section></div>`;
+  if(q.kind==='build')ans=`<div class="bctl" id="bctl"></div>`;
+  const vis=(q.kind==='line'||q.kind==='grid'||q.kind==='build')?`<div class="vis" id="vis"></div>`:q.v3d&&can3D()?`<div class="vis" style="display:block"><div class="v3q" id="v3q" aria-label="Döndürülebilir 3B model"></div><p class="hint v3hint">Döndürmek için sürükle · kumandada ◀ ▶</p></div>`:q.visual?`<div class="vis">${q.visual}</div>`:'';
+  app.innerHTML=`<div class="game" style="--hue:${S.g.hue}">${hud()}<section class="qcard"><span class="qnum">SORU ${S.i+1} / ${S.n}</span><div class="prompt">${q.prompt}</div>${vis}<div class="answers" id="answers">${ans}</div><div id="fb" aria-live="polite"></div></section></div>`;
   bindHud();
   if(q.v3d&&can3D())try{mount3D(document.getElementById('v3q'),c=>BUILD3[q.v3d.kind](c,q.v3d))}catch(e){console.warn('3D',e)}
   if(q.kind==='choice')app.querySelectorAll('.opt').forEach(b=>b.onclick=()=>chooseOpt(+b.dataset.i,b));
@@ -283,6 +292,7 @@ function render(){
       inp.value=v;document.getElementById('err').hidden=true;sfx('tick')})}
   if(q.kind==='line')setupLine();
   if(q.kind==='grid')setupGrid();
+  if(q.kind==='build')setupBuild();
 }
 function chooseOpt(i,btn){
   if(S.done)return;const q=S.q,o=q.options[i];
@@ -297,15 +307,15 @@ function submitNum(){
   const ok=Math.abs(v-S.q.answer)<1e-9;finish(ok,num(S.q.answer)+(S.q.unit?' '+S.q.unit:''),ok?null:(S.q.classify?S.q.classify(v):'other'),document.getElementById('chk'));
 }
 async function finish(ok,correctHtml,mis,src){
-  S.done=true;S.marks[S.i]=ok;logAnswer({d:Date.now(),th:S.g.id,ls:S.lesson?S.lesson.id:null,sk:S.q.sk||null,ok,mis:ok?null:mis});
+  S.done=true;S.marks[S.i]=ok;logAnswer({d:Date.now(),th:S.g.id,ls:S.test?S.cur.id:S.lesson?S.lesson.id:null,sk:S.q.sk||null,ok,mis:ok?null:mis});
   const mk=app.querySelectorAll('.marks i');if(mk[S.i])mk[S.i].className=ok?'ok':'bad';
   let tip='';
   if(ok){rumble('good');S.score++;S.streak++;const mult=S.streak>=5?3:S.streak>=3?2:1,earned=10*mult;S.coins+=earned;addCoins(earned);sfx(skin()==='elektron'?'zapup':'coin');flyCoins(src,Math.min(3+mult*2,9));
     if(S.streak===3||S.streak===5||S.streak===8){banner(`KOMBO ×${mult}!`);sfx('combo')}}
   else{S.streak=0;sfx('wrong');S.misCount[mis]=(S.misCount[mis]||0)+1;S.monsters.push(mis);
-    await mumAttack(mis,S.misCount[mis]);const m=M[mis]||M.other;tip=`<p class="tip"><b>${m.m}</b> yakalandı! ${m.s}</p>`}
+    if(!S.test)await mumAttack(mis,S.misCount[mis]);const m=M[mis]||M.other;tip=`<p class="tip"><b>${m.m}</b> yakalandı! ${m.s}</p>`}
   const st=document.getElementById('streak');if(st){st.textContent='SERİ '+S.streak;st.className='streak'+(S.streak>=3?' hot':'')}
-  const last=S.i===9;
+  const last=S.i===S.n-1;
   document.getElementById('fb').innerHTML=`<div class="fb ${ok?'ok':'bad'}"><h3>${ok?pick(['SÜPER!','HARİKA!','MÜKEMMEL!','TAM İSABET!'])+(S.streak>=3?' · SERİ '+S.streak:''):'Doğru cevap: '+correctHtml}</h3>
     <p class="why">${S.q.explain}</p>${tip}<div class="row"><button class="go" id="nx" type="button">${last?'Sonucu gör':'Sonraki soru →'}</button></div></div>`;
   const nx=document.getElementById('nx');nx.onclick=()=>{S.i++;next()};nx.focus({preventScroll:true});nx.scrollIntoView({block:'nearest',behavior:'smooth'});
@@ -400,7 +410,7 @@ function result(){
   for(let i=0;i<st;i++)setTimeout(()=>sfx('star'),300+i*350);
   bindHud();document.getElementById('again').onclick=()=>D?startDaily():start(g,{skill:S.skill,lesson:S.lesson});if(D)document.getElementById('again').textContent='Yeni karışık set';
 }
-document.addEventListener('keydown',e=>{if(!S||!S.q||S.done||!/^#(tema|pratik)-/.test(location.hash))return;if(S.q.kind==='choice'&&/^[1-4]$/.test(e.key)&&S.q.options[+e.key-1])chooseOpt(+e.key-1)});
+document.addEventListener('keydown',e=>{if(!S||!S.q||S.done||!/^#(tema|pratik|test|ders)-/.test(location.hash))return;if(S.q.kind==='choice'&&/^[1-4]$/.test(e.key)&&S.q.options[+e.key-1])chooseOpt(+e.key-1)});
 
 /* ---- number line ---- */
 function setupLine(){
@@ -771,3 +781,98 @@ function askCheck(st,l){return new Promise(res=>{
   const first=A.querySelector('.opt,input');if(first&&PAD.on)try{first.focus({preventScroll:true})}catch(e){}
   const iv=setInterval(()=>{if(B.tok!==tok||!document.contains(d)){clearInterval(iv);d.remove();res()}},300);
 })}
+
+/* ================= Seviye testi: a short test per theme, two questions per lesson ================= */
+/* Lessons answered right every time are marked "biliyor" (known): they count as done on the map and the daily
+   mission skips them for a week. Lessons with a mistake are suggested first, with their Öğren lesson. */
+function testPlan(g){const ls=LESSONS.filter(l=>l.th===g.id&&l.gen),per=ls.length>=6?2:ls.length>=4?2:ls.length>=3?3:4,seq=[];
+  for(let r=0;r<per;r++)seq.push(...shuffle(ls));return {ls,seq:seq.slice(0,16)}}
+function testQ(l){let q;for(let t=0;t<30;t++){q=l.gen();if(q.kind!=='build')return q}return g4Concept()}
+function testResult(){const g=S.g,log=ST.get('m7-log',[]).slice(-S.n),per={};
+  S.test.seq.forEach((l,i)=>{const r=per[l.id]||(per[l.id]={l,ok:0,n:0});r.n++;if(S.marks[i])r.ok++});
+  const rows=Object.values(per),known=rows.filter(r=>r.ok===r.n).map(r=>r.l.id),lb=ST.get('m7-lbest',{});
+  known.forEach(id=>{if(!(lb[id]>=7))lb[id]=7});ST.set('m7-lbest',lb);
+  const T=ST.get('m7-test',{});T[g.id]={d:Date.now(),s:S.score,n:S.n,known};ST.set('m7-test',T);
+  const first=rows.filter(r=>r.ok<r.n).sort((a,b)=>a.ok/a.n-b.ok/b.n||LESSONS.indexOf(a.l)-LESSONS.indexOf(b.l))[0];
+  const tag=r=>r.ok===r.n?['Biliyor','var(--green)']:r.ok>0?['Tekrar et','var(--gold)']:['Öğren','var(--red)'];
+  const lrow=r=>{const [t,c]=tag(r),l=r.l,learn=l.script||l.learn!=null;return `<div class="trow"><span class="tname">${l.no} ${l.t}</span><span class="chip" style="border-color:${c};color:${c}">${t} · ${r.ok}/${r.n}</span>
+    <span class="ta">${learn?`<a class="btn sm${r.ok<r.n?' gold':''}" href="#ogren-${l.id}">${ic('book')} Öğren</a>`:''}<a class="btn sm" href="#ders-${l.id}">${ic('play')} Oyna</a></span></div>`};
+  const pct=Math.round(S.score/S.n*100),msg=pct>=90?'Bu temayı çok iyi biliyorsun! Sıradaki temaya geçebilirsin.':pct>=60?'Temelin sağlam. Sarı ve kırmızı dersleri çalışınca tamam.':'Bu temaya derslerin anlatımıyla başlamak en iyisi. Önerilen dersten başla.';
+  app.innerHTML=`<div class="game" style="--hue:${g.hue}">${hud()}<section class="qcard result"><h2>SEVİYE TESTİ SONUCU</h2><div class="score">${S.score} / ${S.n}</div>
+    <p class="coins" style="justify-content:center"><i class="coin"></i>+${S.coins} altın</p><p>${msg}</p>
+    ${first?`<p><a class="btn prime" href="#ogren-${first.l.id}">Buradan başla: ${first.l.no} ${first.l.t} →</a></p>`:''}
+    <div class="tres">${rows.map(lrow).join('')}</div>
+    <p class="hint">"Biliyor" olan dersler haritada tamamlandı sayılır ve günlük görev onları bir hafta boyunca karıştırmaz. Hatalı dersler günlük göreve daha sık gelir.</p>
+    <div class="row" style="justify-content:center"><button class="go" id="again" type="button">Testi yeniden çöz</button><a class="btn" href="#">Ders haritası</a><a class="btn" href="#rapor">Ebeveyn Raporu</a></div></section></div>`;
+  bindHud();document.getElementById('again').onclick=()=>start(g,{test:true});sfx('star')}
+
+/* ================= Pergel atölyesi: step-by-step compass and ruler constructions ================= */
+function setupBuild(){
+  const q=S.q,vis=document.getElementById('vis'),ctl=document.getElementById('bctl'),W=640,H=410;
+  const V=(a,b)=>[b[0]-a[0],b[1]-a[1]],dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]),at=(c,r,t)=>[c[0]+r*Math.cos(t),c[1]+r*Math.sin(t)],ang=(a,b)=>Math.atan2(b[1]-a[1],b[0]-a[0]);
+  const arc=(c,r,t0,t1,cls)=>{const p0=at(c,r,t0),p1=at(c,r,t1);return `<path class="${cls}" d="M${p0[0].toFixed(1)} ${p0[1].toFixed(1)} A${r.toFixed(1)} ${r.toFixed(1)} 0 ${t1-t0>Math.PI?1:0} 1 ${p1[0].toFixed(1)} ${p1[1].toFixed(1)}"/>`};
+  /* the two crossing points of equal circles around P1 and P2 (none if r is not more than half the distance) */
+  const meet=(P1,P2,r)=>{const d=dist(P1,P2);if(r<=d/2+.5)return null;const m=[(P1[0]+P2[0])/2,(P1[1]+P2[1])/2],k=Math.sqrt(r*r-d*d/4),n=[-(P2[1]-P1[1])/d,(P2[0]-P1[0])/d];return [[m[0]+k*n[0],m[1]+k*n[1]],[m[0]-k*n[0],m[1]-k*n[1]]]};
+  const arcsAround=(c,o,r,X)=>{/* two short arcs where the crossings are (or would be) */const base=ang(c,o),d=dist(c,o),w=X?Math.acos(Math.min(1,d/2/r)):Math.PI/2.6;
+    return arc(c,r,base+w-.42,base+w+.42,'b-arc')+arc(c,r,base-w-.42,base-w+.42,'b-arc')};
+  /* the widest opening whose crossing points (all, or only the far one) still fall inside the drawing, so they can be tapped */
+  const inside=p=>p[0]>=26&&p[0]<=W-26&&p[1]>=26&&p[1]<=H-26;
+  const fitR=(P1,P2,hi,keep)=>{let lo=dist(P1,P2)/2+2;if(!(meet(P1,P2,hi)||[]).filter(keep).every(inside)){let a=lo,b=hi;for(let i=0;i<30;i++){const m=(a+b)/2;((meet(P1,P2,m)||[]).filter(keep).every(inside))?a=m:b=m}hi=a}return hi};
+  const st={step:0,r:0,mist:0,arcs:'',marks:'',found:[],center:null,done:false};
+  let steps;
+  const pt=(p,l,cls='b-pt')=>`<circle class="${cls}" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="6"/><text class="b-lbl" x="${(p[0]+10).toFixed(1)}" y="${(p[1]-12).toFixed(1)}">${l}</text>`;
+  if(q.task==='dikme'){const A=q.A,B=q.B,AB=dist(A,B);let X=null;
+    const base=()=>`<line class="b-seg" x1="${A[0]}" y1="${A[1]}" x2="${B[0]}" y2="${B[1]}"/>${pt(A,'A')}${pt(B,'B')}`;
+    steps=[
+     {say:'Pergelin sivri ucunu <b>A</b> noktasına koy. A\'ya dokun.',hits:[['A',A]],on:()=>{st.center=A;st.r=AB*.42;next()}},
+     {say:'Pergeli aç: açıklık <b>AB\'nin yarısından fazla</b> olmalı. Kaydırıcıyla ayarla, sonra <b>Yay çiz</b>.',slider:[AB*.25,fitR(A,B,AB*.95,()=>true)],btn:['Yay çiz',()=>{st.arcs+=arcsAround(A,B,st.r,meet(A,B,st.r));sfx('tick');next()}]},
+     {say:'Açıklığı <b>değiştirmeden</b> sivri ucu <b>B</b> noktasına taşı. B\'ye dokun.',hits:[['B',B]],on:()=>{st.center=B;X=meet(A,B,st.r);st.arcs+=arcsAround(B,A,st.r,X);sfx('tick');
+       if(!X){fail('Yaylar kesişmedi! Pergel AB\'nin yarısından <b>fazla</b> açılmalıydı.',()=>{st.arcs='';st.center=A;go(1)});return}next()}},
+     {say:'Yaylar iki noktada kesişti. <b>Kesişme noktalarının ikisine de</b> dokun.',hits:()=>X.map((p,i)=>['P'+i,p]),multi:2,on:id=>{const p=X[+id.slice(1)];st.marks+=pt(p,st.found.length>1?'D':'C','b-pt hit2');sfx('coin')}},
+     {say:'Cetveli C ve D noktalarına daya ve <b>birleştir</b>.',btn:['Cetvelle birleştir',()=>{const [P,Q]=X,u=V(P,Q),k=900/Math.hypot(...u),M=[(A[0]+B[0])/2,(A[1]+B[1])/2];
+       st.marks+=`<line class="b-res" x1="${P[0]-u[0]*k}" y1="${P[1]-u[1]*k}" x2="${Q[0]+u[0]*k}" y2="${Q[1]+u[1]*k}"/>`+rightMark(M,ang(A,B))+tick(A,M)+tick(M,B)+pt(M,'M','b-pt hit2');
+       done('Orta dikme hazır! <b>M</b> noktası AB\'nin orta noktası ve doğru AB\'ye <b>dik</b>: AM = MB.')}]}];
+    draw0=base}
+  else{const O=q.O,R1=at(O,q.L,q.r1),R2=at(O,q.L,q.r2);let Dp=null,Ep=null,X=null,r1=0;
+    const base=()=>`<line class="b-seg" x1="${O[0]}" y1="${O[1]}" x2="${R1[0]}" y2="${R1[1]}"/><line class="b-seg" x1="${O[0]}" y1="${O[1]}" x2="${R2[0]}" y2="${R2[1]}"/>${pt(O,'O')}${pt(at(O,q.L*.92,q.r1),'A')}${pt(at(O,q.L*.92,q.r2),'B')}`;
+    steps=[
+     {say:'Pergelin sivri ucunu açının köşesi <b>O</b>\'ya koy. O\'ya dokun.',hits:[['O',O]],on:()=>{st.center=O;st.r=q.L*.45;next()}},
+     {say:'Bir açıklık seç ve <b>Yay çiz</b>: yay iki kolu da kessin.',slider:[q.L*.22,q.L*.8],btn:['Yay çiz',()=>{r1=st.r;Dp=at(O,r1,q.r1);Ep=at(O,r1,q.r2);st.arcs+=arc(O,r1,q.r1-.2,q.r2+.2,'b-arc');st.marks+=pt(Dp,'D')+pt(Ep,'E');sfx('tick');st.r=dist(Dp,Ep)*.4;next()}]},
+     {say:'Şimdi pergeli <b>DE\'nin yarısından fazla</b> aç ve sivri ucu <b>D</b>\'ye koy. Önce açıklığı ayarla, sonra D\'ye dokun.',slider:()=>[dist(Dp,Ep)*.25,fitR(Dp,Ep,dist(Dp,Ep)*1.2,p=>dist(p,O)>dist(Dp,O)*.6)],hits:()=>[['D',Dp]],on:()=>{st.center=Dp;X=meet(Dp,Ep,st.r);st.arcs2=arcsAround(Dp,Ep,st.r,X);st.arcs+=st.arcs2;sfx('tick');next()}},
+     {say:'Açıklığı <b>değiştirmeden</b> sivri ucu <b>E</b>\'ye taşı. E\'ye dokun.',hits:()=>[['E',Ep]],on:()=>{st.center=Ep;st.arcs+=arcsAround(Ep,Dp,st.r,X);sfx('tick');
+       if(!X){fail('Yaylar kesişmedi! Pergel DE\'nin yarısından <b>fazla</b> açılmalıydı.',()=>{st.arcs=st.arcs.split(st.arcs2)[0];st.center=Dp;go(2)});return}next()}},
+     {say:'Açının <b>içindeki</b> kesişme noktasına dokun.',hits:()=>X.filter(p=>dist(p,O)>dist(Dp,O)*.6).map((p,i)=>['F'+i,p]),on:id=>{X.F=X.filter(p=>dist(p,O)>dist(Dp,O)*.6)[+id.slice(1)];st.marks+=pt(X.F,'F','b-pt hit2');sfx('coin');next()}},
+     {say:'Cetveli O ve F\'ye daya ve <b>birleştir</b>.',btn:['Cetvelle birleştir',()=>{const F=X.F,u=V(O,F),k=Math.max(q.L,Math.hypot(...u)+50)/Math.hypot(...u);
+       st.marks+=`<line class="b-res" x1="${O[0]}" y1="${O[1]}" x2="${O[0]+u[0]*k}" y2="${O[1]+u[1]*k}"/>`+arc(O,46,q.r1,(q.r1+q.r2)/2-.04,'b-eq')+arc(O,52,(q.r1+q.r2)/2+.04,q.r2,'b-eq');
+       done('Açıortay hazır! OF ışını açıyı <b>iki eş açıya</b> böldü.')}]}];
+    draw0=base}
+  var draw0;
+  function rightMark(M,t){const a=at(M,14,t),c=at(a,14,t-Math.PI/2),b=at(M,14,t-Math.PI/2);return `<polyline class="b-eq" points="${a[0]},${a[1]} ${c[0]},${c[1]} ${b[0]},${b[1]}"/>`}
+  function tick(P,Q){const m=[(P[0]+Q[0])/2,(P[1]+Q[1])/2],t=ang(P,Q)+Math.PI/2,a=at(m,8,t),b=at(m,-8,t);return `<line class="b-eq" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`}
+  const cur=()=>steps[st.step],val=f=>typeof f==='function'?f():f;
+  function compass(){if(!st.center||st.done)return '';const c=st.center,t=-Math.PI/2.8,p=at(c,st.r,t),h=at([(c[0]+p[0])/2,(c[1]+p[1])/2],Math.min(70,st.r*.45),t-Math.PI/2);
+    return `<circle class="b-prev" cx="${c[0]}" cy="${c[1]}" r="${st.r.toFixed(1)}"/><g class="b-cmp"><line x1="${c[0]}" y1="${c[1]}" x2="${h[0]}" y2="${h[1]}"/><line x1="${p[0]}" y1="${p[1]}" x2="${h[0]}" y2="${h[1]}"/><circle cx="${h[0]}" cy="${h[1]}" r="6"/><circle class="b-pen" cx="${p[0]}" cy="${p[1]}" r="4"/></g>`}
+  function draw(){const hs=cur()&&cur().hits&&!st.done&&!st.hold?val(cur().hits).filter(h=>!st.found.includes(h[0])):[];
+    vis.innerHTML=`<svg class="bsv" id="bsv" viewBox="0 0 ${W} ${H}" role="img" aria-label="Pergel ve cetvel çizim alanı">${draw0()}${st.arcs}${st.marks}${compass()}
+      ${hs.map(([id,p])=>`<circle class="b-hit" data-id="${id}" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="24" tabindex="0" role="button" aria-label="${/^[A-Z]$/.test(id)?id+' noktası':'kesişme noktası'}"/>`).join('')}</svg>`;
+    const svg=document.getElementById('bsv');
+    svg.querySelectorAll('.b-hit').forEach(h=>{const go1=e=>{e.stopPropagation();hit(h.dataset.id)};h.addEventListener('click',go1);h.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go1(e)}})});
+    svg.addEventListener('click',()=>{if(cur()&&cur().hits&&!st.done&&!st.hold)msg('Biraz yanına dokundun. Parlayan noktayı ara: '+val(cur().say).replace(/<[^>]+>/g,''),'hint')})}
+  function hit(id){const s0=cur();if(s0.multi){st.found.push(id);s0.on(id);if(st.found.length>=s0.multi){st.found=[];next()}else{draw();msg('Güzel! Şimdi öbür kesişme noktası.','ok')}return}s0.on(id)}
+  function msg(t,k){const m=document.getElementById('bmsg');if(m){m.innerHTML=t;m.className='bmsg '+k}}
+  function controls(){const s0=cur();if(!s0||st.done)return;const sl=val(s0.slider);
+    ctl.innerHTML=`<p class="bstep"><span class="bn">Adım ${st.step+1} / ${steps.length}</span> ${s0.say}</p>
+      ${sl?`<label class="bsl">Pergel açıklığı<input type="range" id="brad" min="${sl[0].toFixed(0)}" max="${sl[1].toFixed(0)}" step="1" value="${Math.max(sl[0],Math.min(sl[1],st.r)).toFixed(0)}"></label>`:''}
+      ${s0.btn?`<button class="go" id="bbtn" type="button">${s0.btn[0]}</button>`:''}<p class="bmsg" id="bmsg" aria-live="polite"></p>`;
+    if(sl){st.r=+document.getElementById('brad').value;document.getElementById('brad').oninput=e=>{st.r=+e.target.value;draw()}}
+    if(s0.btn)document.getElementById('bbtn').onclick=()=>s0.btn[1]()}
+  function go(i){st.step=i;st.found=[];st.hold=false;draw();controls()}
+  /* a construction mistake: show the arcs that do not meet, count it once, then let the child try again */
+  function fail(t,back){st.mist++;st.hold=true;S.bmis='compassHalf';sfx('wrong');const c0=st.center;st.center=null;draw();st.center=c0;
+    ctl.innerHTML=`<p class="bmsg bad">${t} Yarıçapların toplamı (r + r) iki nokta arasındaki uzaklıktan büyük olmalı.</p><button class="go" id="bre" type="button">Yeniden dene</button>`;
+    document.getElementById('bre').onclick=back;document.getElementById('bre').focus({preventScroll:true})}
+  function next(){go(st.step+1)}
+  function done(t){st.done=true;sfx('star');draw();ctl.innerHTML=`<p class="bstep ok">${t}</p>`;
+    const ok=st.mist===0;finish(ok,ok?'':'pergel yarıdan fazla açılmalı',ok?null:(S.bmis||'compassHalf'),ctl)}
+  S.bmis=null;go(0);
+}

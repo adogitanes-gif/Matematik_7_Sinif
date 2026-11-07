@@ -14,7 +14,7 @@ function briefing(g,startAt=0,lesson=null,scenes=BRIEF1){
    <div class="tl" id="tl" role="slider" aria-label="Zaman çizelgesi" aria-valuemin="0" aria-valuemax="${Math.round(B.total/1000)}" title="Bir bölüme atlamak için tıkla"><div class="tlf" id="tlf"></div><div class="tlb" id="tlb">${segs}</div><div class="tlh" id="tlh"></div></div>
    <div class="tlt"><span id="tlc">0:00</span><span id="tld">${fmtT(B.total)}</span></div>
    <div class="cap${B.cap?'':' off'}" id="cap" aria-live="polite"><span class="sp">RAKAM:</span><span id="capt">Görevden önce kısa bir brifing var. Sesi aç ve başlat!</span></div>
-   ${VOICE.v?'':'<p class="vnote">Bu cihazda Türkçe ses bulunamadı; anlatımı altyazıdan oku.</p>'}
+   ${VOICE.v?'':`<p class="vnote">${noVoiceMsg()}</p>`}
    <div class="cbar" role="toolbar" aria-label="Brifing kontrolleri">
      <button class="cb" id="first" type="button" title="Baştan başlat">${ic('first')} Baştan</button>
      <button class="cb" id="prev" type="button" title="Önceki sahne (←)">${ic('prev')} Önceki</button>
@@ -54,7 +54,7 @@ function briefing(g,startAt=0,lesson=null,scenes=BRIEF1){
   tog('auto',()=>B.auto,v=>{B.auto=v;ST.set('m7-auto',v)},'Otomatik geçiş','auto');
   document.querySelectorAll('#dots button').forEach(b=>b.onclick=()=>begin(+b.dataset.s));
   $('skn').onclick=()=>{const k=Object.keys(SKINS);applySkin(k[(k.indexOf(skin())+1)%k.length]);$('skn').textContent='Görünüm: '+SKINS[skin()]};
-  $('vsel').onclick=()=>{pickVoice();const L=VOICE.list||[];if(!L.length){$('vsel').innerHTML=`${ic('voice')} Anlatıcı: Türkçe ses yok`;return}
+  $('vsel').onclick=()=>{pickVoice();const L=VOICE.list||[];if(!L.length){$('vsel').innerHTML=`${ic('voice')} Anlatıcı: ${vName()}`;if(!VOICE.v)voiceHelp();else{hush();say('Merhaba kaşif, ben Rakam. Sesim böyle.',true)}return}
     const i=L.indexOf(VOICE.v);VOICE.v=L[(i+1)%L.length];ST.set('m7-voicename',VOICE.v.name);ST.set('m7-voiceok',L.some(v=>/ahmet/i.test(v.name)));$('vsel').innerHTML=`${ic('voice')} Anlatıcı: ${vName()}`;
     if(B.started&&!B.paused)setPaused(true);hush();say('Merhaba kaşif, ben Rakam. Sesim böyle.',true)};
   ppLabel();
@@ -247,13 +247,14 @@ requestAnimationFrame(padLoop);
 /* ================= routing ================= */
 function route(){
   B.tok++;hush();S=null;window.scrollTo(0,0);document.body.classList.remove('calm');const h=location.hash;let m;
-  document.body.classList.toggle('at-home',!/^#(tema|ders|ogren|pratik|gorev|magaza|rapor)/.test(h));
+  document.body.classList.toggle('at-home',!/^#(tema|ders|ogren|pratik|test|gorev|magaza|rapor)/.test(h));
   if((m=h.match(/^#tema-([1-9])$/))){const g=G.find(x=>x.id===+m[1]);setLast(h,`${g.id}. Tema görevi: ${g.name}`);document.title=g.name+' · Matematik 7';if(g.brief)briefing(g);else start(g);return}
   if((m=h.match(/^#ders-([1-9]-\d)$/))){const l=LESSONS.find(x=>x.id===m[1]);if(l&&l.gen){setLast(h,`${l.no} ${l.t}`);document.title=l.t+' · Matematik 7';start(G[l.th-1],{lesson:l});return}}
   if((m=h.match(/^#ogren-([1-9]-\d)(?:-(\d+))?$/))){const l=LESSONS.find(x=>x.id===m[1]);if(l&&(l.script||l.learn!=null)){setLast('#ogren-'+l.id,`Öğren: ${l.no} ${l.t}`);document.title='Öğren · '+l.t;
     {const sc=scenesFor(l);briefing(G[l.th-1],Math.min(+(m[2]||0),sc.length-1),l,sc)}
     if(m[2]!=null)document.getElementById('play')?.click();return}}
   if((m=h.match(/^#pratik-([a-z-]+)$/))&&SK1[m[1]]){const g=G[0];document.title='Pratik · Matematik 7';start(g,{skill:m[1]});return}
+  if((m=h.match(/^#test-([1-9])$/))){const g=G.find(x=>x.id===+m[1]);setLast(h,`${g.id}. Tema seviye testi`);document.title='Seviye testi · '+g.tema;start(g,{test:true});return}
   if(h==='#gorev'){document.title='Bugünün Görevi · Matematik 7';startDaily();return}
   if(h==='#magaza')return shopPage();
   if(h==='#rapor')return reportPage();
@@ -281,3 +282,19 @@ function fillInstall(){const slot=document.getElementById('instslot');if(!slot)r
       <button class="btn gold" type="button">Tamam</button></div>`;o.onclick=ev=>{if(ev.target===o||ev.target.tagName==='BUTTON')o.remove()};document.body.appendChild(o)}}
 new MutationObserver(()=>{const s=document.getElementById('instslot');if(s&&!s.dataset.f){s.dataset.f=1;fillInstall()}}).observe(document.getElementById('app'),{childList:true});
 fillInstall();
+
+/* no Turkish voice on this device: say how to add one (Android / Samsung / iPad / Windows) */
+/* Edge on Android gives web pages no voices (its Read Aloud is separate); Chrome there uses the tablet's Google voices */
+function edgeAndroid(){return /Android/i.test(navigator.userAgent)&&/EdgA\//.test(navigator.userAgent)}
+function noVoiceMsg(){if(edgeAndroid())return 'Edge, Android tablette web sayfalarına Türkçe ses vermiyor. Sesli anlatım için oyunu <b>Chrome</b> ile açın (bilgisayarda ise Edge en iyisidir: Ahmet).';return 'Bu cihazda Türkçe ses bulunamadı; anlatımı altyazıdan okuyabilirsin. <a href="#" onclick="voiceHelp();return false">Türkçe ses nasıl eklenir?</a>'}
+function voiceHelp(){const o=document.createElement('div');o.className='ov';o.innerHTML=`<div class="pnl" style="max-width:640px;cursor:auto;text-align:left;max-height:86vh;overflow:auto"><h2 style="margin-top:0">Türkçe ses ekleme</h2>${edgeAndroid()?'<p><b>Bu tablette Edge kullanılıyor.</b> Edge, Android’de web sayfalarına ses vermez. Oyunu <b>Chrome</b> ile açın; aşağıdaki ayarlar Chrome için geçerlidir.</p>':''}
+  <p><b>Android tablet / telefon</b></p><ol style="line-height:1.6;padding-left:1.3em"><li>Play Store'dan <b>Google'ın Konuşma Hizmetleri</b> (Speech Services by Google) uygulamasını yükleyin veya güncelleyin.</li>
+  <li>Ayarlar → <b>Metin okuma çıkışı</b> (Text-to-speech output). Samsung'da: Ayarlar → Genel yönetim → Metin okuma.</li>
+  <li>Tercih edilen motor: <b>Google</b>. Yanındaki dişli → <b>Ses verilerini yükle</b> → <b>Türkçe</b>'yi indirin. Dil olarak Türkçe'yi seçin.</li>
+  <li>Oyunu kapatıp yeniden açın.</li></ol>
+  <p><b>iPad / iPhone</b>: Ayarlar → Erişilebilirlik → Seslendirilen İçerik → Sesler → <b>Türkçe</b> → bir ses indirin.</p>
+  <p><b>Windows</b>: Ayarlar → Saat ve dil → Konuşma → Ses ekle → <b>Türkçe</b>. En doğal ses (Ahmet) Microsoft Edge'de internetle gelir.</p>
+  <p class="hint">Bu cihazın bildirdiği sesler: ${VOICE.all||0} (Türkçe: ${(VOICE.list||[]).length}).</p>
+  <button class="btn gold" type="button">Tamam</button></div>`;o.onclick=ev=>{if(ev.target===o||ev.target.tagName==='BUTTON')o.remove()};document.body.appendChild(o)}
+/* a voice that turns up late: refresh the narrator button and drop the "no voice" note */
+window.addEventListener('m7voice',()=>{const b=document.getElementById('vsel');if(b)b.innerHTML=`${ic('voice')} Anlatıcı: ${vName()}`;if(VOICE.v)document.querySelectorAll('.vnote').forEach(n=>n.remove())});
