@@ -1,5 +1,5 @@
-/* Matematik 7 offline helper. Version 94b92021f9 changes whenever any file changes, so devices pick up updates. */
-const V='m7-94b92021f9',FILES=["./", "icons/apple-touch-icon.png", "icons/favicon.png", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "img/logo.png", "index.html", "js/01-core.js", "js/02-questions.js", "js/03-curriculum.js", "js/04-engine.js", "js/05-lessons.js", "js/06-app.js", "js/08-classlink.js", "lib/three.min.js", "manifest.webmanifest"];
+/* Matematik 7 offline helper. Version a5f42292db changes whenever any file changes, so devices pick up updates. */
+const V='m7-a5f42292db',FILES=["./", "icons/apple-touch-icon.png", "icons/favicon.png", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "img/logo.png", "index.html", "js/01-core.js", "js/02-questions.js", "js/03-curriculum.js", "js/04-engine.js", "js/05-lessons.js", "js/06-app.js", "js/08-classlink.js", "lib/three.min.js", "manifest.webmanifest"];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(FILES)).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k.startsWith('m7-')&&k!==V&&k!=='m7-fonts').map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});
 self.addEventListener('fetch',e=>{const r=e.request;if(r.method!=='GET')return;const u=new URL(r.url);
